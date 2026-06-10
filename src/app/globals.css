@@ -1,0 +1,4 @@
+/* Tailwind's three layers — base resets, reusable component classes, utility classes */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
