@@ -34,7 +34,7 @@ export default function RootLayout({
             Dishes
           </Link>
           <Link href="/recommend" className="font-medium hover:underline">
-            Ask Claude
+            <span className="text-orange-500">✦ Ask Claude</span>
           </Link>
         </nav>
 

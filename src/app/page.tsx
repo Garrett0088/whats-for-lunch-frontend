@@ -296,7 +296,7 @@ export default function HomePage() {
           Full viewport height, centered — the main landing experience         */}
       <section className="pt-16 pb-10 flex flex-col items-center gap-6 px-6 text-center">
         <h1 className="text-6xl font-extrabold text-gray-800 leading-tight">
-          What&apos;s For Lunch?
+          What&apos;s For <span className="text-indigo-600">Lunch?</span>
         </h1>
         <p className="text-xl text-gray-500 max-w-md">
           Discover meals people actually love

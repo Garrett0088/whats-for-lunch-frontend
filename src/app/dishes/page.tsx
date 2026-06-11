@@ -1,6 +1,7 @@
 "use client"; // useState + useEffect require a Client Component
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 // Mirrors DishResponse from the FastAPI schemas
@@ -465,14 +466,16 @@ export default function DishesPage() {
                 const restaurantName = restaurantMap[dish.restaurant_id] ?? "Unknown restaurant";
 
                 return (
-                  <div
+                  <Link
                     key={dish.id}
+                    href={`/restaurants/${dish.restaurant_id}?highlight=${dish.id}`}
                     className={`
                       ${colors.bg}
                       rounded-2xl shadow-md p-5
                       flex flex-col gap-2
                       hover:shadow-xl hover:-translate-y-0.5
                       transition-all duration-200
+                      cursor-pointer
                     `}
                   >
                     {/* Dish name — large, in the card's accent color */}
@@ -529,7 +532,7 @@ export default function DishesPage() {
                       <span className="font-semibold text-gray-800">{dish.times_ordered}</span>
                       {" "}{dish.times_ordered === 1 ? "time" : "times"}
                     </p>
-                  </div>
+                  </Link>
                 );
               })}
             </div>

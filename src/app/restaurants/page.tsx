@@ -1,6 +1,7 @@
 "use client"; // This page uses useState and useEffect, so it must be a Client Component
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 // ── Type ─────────────────────────────────────────────────────────────────────
 // Mirrors RestaurantResponse from the FastAPI schemas — every field the API returns
@@ -218,14 +219,16 @@ export default function RestaurantsPage() {
           const distance = DISTANCES_FROM_CSTU[restaurant.name]; // may be undefined for unknown restaurants
 
           return (
-            <div
+            <Link
               key={restaurant.id}
+              href={`/restaurants/${restaurant.id}`}
               className={`
                 ${colors.bg}
                 rounded-2xl shadow-md p-5
                 flex flex-col gap-3
                 hover:shadow-xl hover:-translate-y-0.5
                 transition-all duration-200
+                cursor-pointer
               `}
             >
               {/* Restaurant name — large and colored to match the card palette */}
@@ -279,7 +282,7 @@ export default function RestaurantsPage() {
                 <span className="font-semibold text-gray-800">{restaurant.visit_count}</span>{" "}
                 {restaurant.visit_count === 1 ? "visit" : "visits"} logged
               </p>
-            </div>
+            </Link>
           );
         })}
       </div>
