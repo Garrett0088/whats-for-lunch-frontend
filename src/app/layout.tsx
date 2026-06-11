@@ -34,12 +34,17 @@ export default function RootLayout({
             Dishes
           </Link>
           <Link href="/recommend" className="font-medium hover:underline">
-            Recommend
+            Ask Claude
           </Link>
         </nav>
 
         {/* Each route's page.tsx is rendered here as {children} */}
         <main className="p-6">{children}</main>
+
+        {/* Copyright footer — rendered on every page */}
+        <footer className="mt-8 pb-6 text-center text-xs text-gray-400">
+          © {new Date().getFullYear()} What&apos;s For Lunch. All rights reserved.
+        </footer>
       </body>
     </html>
   );
