@@ -139,28 +139,35 @@ function FilterBar({
   filterVegi,  setFilterVegi,
   filterSpicy, setFilterSpicy,
 }: FilterBarProps) {
+  // Vegi and Spicy don't apply to beverages — disable them when only Drink is shown
+  const drinkOnly = showDrink && !showMeal && !showSide;
 
-  // Reusable toggle pill — renders differently when active vs inactive
+  // Reusable toggle pill — renders differently when active, inactive, or disabled
   function Pill({
     active,
     onToggle,
     activeClass,
+    disabled = false,
     children,
   }: {
     active: boolean;
     onToggle: () => void;
     activeClass: string;
+    disabled?: boolean;
     children: React.ReactNode;
   }) {
     return (
       <button
-        onClick={onToggle}
+        onClick={disabled ? undefined : onToggle}
+        disabled={disabled}
         className={`
           px-4 py-1.5 rounded-full text-sm font-semibold border-2
           transition-all duration-150 select-none
-          ${active
-            ? activeClass
-            : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-300"
+          ${disabled
+            ? "bg-gray-800 border-gray-700 text-gray-600 opacity-40 cursor-not-allowed"
+            : active
+              ? activeClass
+              : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-300"
           }
         `}
       >
@@ -203,11 +210,12 @@ function FilterBar({
       {/* Thin vertical separator between category and tag sections */}
       <span className="w-px h-6 bg-gray-700 mx-1" aria-hidden="true" />
 
-      {/* ── Tag pills — when checked, ONLY matching dishes are shown */}
+      {/* ── Tag pills — disabled when only Drink is active (spicy/vegi don't apply to beverages) */}
       <Pill
         active={filterVegi}
         onToggle={() => setFilterVegi(!filterVegi)}
         activeClass="bg-emerald-600 border-emerald-400 text-white"
+        disabled={drinkOnly}
       >
         🌿 Vegi
       </Pill>
@@ -215,6 +223,7 @@ function FilterBar({
         active={filterSpicy}
         onToggle={() => setFilterSpicy(!filterSpicy)}
         activeClass="bg-orange-600 border-orange-400 text-white"
+        disabled={drinkOnly}
       >
         🔥 Spicy
       </Pill>

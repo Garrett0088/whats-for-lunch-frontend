@@ -36,6 +36,27 @@ type Dish = {
   created_at: string;
 };
 
+// ── Agent Mode Types ─────────────────────────────────────────────────────────
+
+// One tool call from a single /ai/agent turn, tagged with which turn it came from.
+// `input` and `result` shapes vary per tool (get_dishes / update_dish / delete_dish),
+// so they're loosely typed here and narrowed inside AgentStepCard.
+type AgentStep = {
+  turn: number;
+  tool: string;
+  input: Record<string, unknown>;
+  result: any;
+};
+
+// Response shape from POST /ai/agent — note this is DIFFERENT from /ai/recommend's
+// {reply, updated_history}: the field is `response` (not `reply`), and there's a
+// new `agent_steps` array that feeds the Agent Actions panel.
+type AgentResponse = {
+  response: string;
+  agent_steps: Omit<AgentStep, "turn">[];
+  updated_history: ConversationTurn[];
+};
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 // Same 6-color pastel palette used on Restaurants and Dishes pages
@@ -302,6 +323,264 @@ function RestaurantMentionCard({
   );
 }
 
+// ── Agent Mode Sub-components ──────────────────────────────────────────────────
+
+// ModeToggle — two-button switch between "Recommend" (read-only chat) and
+// "Agent" (the agent can read AND write/delete dishes). Rendered in both
+// State 1 and State 2 so the user can pick a mode before or during a chat.
+function ModeToggle({
+  mode,
+  onSwitch,
+}: {
+  mode: "recommend" | "agent";
+  onSwitch: (m: "recommend" | "agent") => void;
+}) {
+  return (
+    <div className="inline-flex rounded-xl border border-gray-300 bg-white p-1 shadow-sm">
+      <button
+        onClick={() => onSwitch("recommend")}
+        className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+          mode === "recommend"
+            ? "bg-indigo-600 text-white"
+            : "text-gray-500 hover:text-gray-700"
+        }`}
+      >
+        Recommend
+      </button>
+      <button
+        onClick={() => onSwitch("agent")}
+        className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+          mode === "agent"
+            ? "bg-indigo-600 text-white"
+            : "text-gray-500 hover:text-gray-700"
+        }`}
+      >
+        Agent
+      </button>
+    </div>
+  );
+}
+
+// AgentStepCard — renders ONE entry from agent_steps. The shape of `step.result`
+// depends on `step.tool`, so each branch below narrows it manually:
+//   - get_dishes:  { dishes: Dish[] }                     → collapsible list
+//   - update_dish: { name, updated_fields, previous_value, current_value, id } → diff + Undo
+//   - delete_dish: { name, id }                            → simple confirmation
+function AgentStepCard({
+  step,
+  isUndone,
+  onUndo,
+  restaurantNameById,
+  lastAgentReply,
+}: {
+  step: AgentStep;
+  isUndone: boolean;
+  onUndo: () => void;
+  restaurantNameById: Record<number, string>;
+  lastAgentReply: string;
+}) {
+  // Local expand/collapse state — only used by the get_dishes branch.
+  // Each card gets its own independent toggle. Defaults to expanded (true)
+  // per Garrett's request — the top-5 limit below keeps this from being a wall of text.
+  const [expanded, setExpanded] = useState(true);
+
+  // ── get_dishes: collapsible dish list, filtered to Claude-mentioned dishes,
+  //    grouped meal → side → drink, sorted by rating within each group ────────
+  if (step.tool === "get_dishes") {
+    const allDishes: Dish[] = step.result?.dishes ?? [];
+    const lower = lastAgentReply.toLowerCase();
+    const mentioned = allDishes.filter((d) => lower.includes(d.name.toLowerCase()));
+    const dishes = mentioned.length > 0 ? mentioned : allDishes;
+
+    // Sort: category order first (meal=0, side=1, drink=2), then rating desc
+    const CAT_ORDER: Record<string, number> = { meal: 0, side: 1, drink: 2 };
+    const CAT_LABEL: Record<string, string>  = { meal: "🍽 Meals", side: "🥗 Sides", drink: "☕ Drinks" };
+    const sorted = [...dishes].sort((a, b) => {
+      const catA = CAT_ORDER[a.category?.toLowerCase() ?? ""] ?? 3;
+      const catB = CAT_ORDER[b.category?.toLowerCase() ?? ""] ?? 3;
+      if (catA !== catB) return catA - catB;
+      return (b.user_rating ?? -1) - (a.user_rating ?? -1);
+    });
+
+    // Group consecutive items by category for section headers
+    const sections: { label: string; items: Dish[] }[] = [];
+    for (const d of sorted) {
+      const label = CAT_LABEL[d.category?.toLowerCase() ?? ""] ?? "Other";
+      const last = sections[sections.length - 1];
+      if (last && last.label === label) last.items.push(d);
+      else sections.push({ label, items: [d] });
+    }
+
+    return (
+      <div className="bg-white rounded-xl p-3 border border-gray-200 shadow-sm">
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <span className="text-lg text-gray-700">
+            🔍 Looked up <span className="font-semibold">{sorted.length}</span>{" "}
+            dish{sorted.length === 1 ? "" : "es"}
+          </span>
+          <span className="text-base text-gray-400 flex-shrink-0 ml-2">
+            {expanded ? "▲ hide" : "▼ show"}
+          </span>
+        </button>
+
+        {/* Grouped dish list — only rendered when expanded */}
+        {expanded && (
+          <div className="mt-2 max-h-64 overflow-y-auto space-y-3">
+            {sections.map((section) => (
+              <div key={section.label}>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                  {section.label}
+                </p>
+                <ul className="pl-1 text-base text-gray-600 space-y-1">
+                  {section.items.map((d) => (
+                    <li key={d.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate">
+                        {d.name}{" "}
+                        <span className="text-gray-400">
+                          from {restaurantNameById[d.restaurant_id] ?? "Unknown"}
+                        </span>
+                      </span>
+                      <StarRating rating={d.user_rating} small />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── update_dish: error state OR success diff + Undo ──────────────────────
+  if (step.tool === "update_dish") {
+    const result = step.result ?? {};
+
+    // Show error card when the tool returned (or threw) an error
+    if (result.error) {
+      return (
+        <div className="bg-white rounded-xl p-3 border border-red-200 shadow-sm">
+          <p className="text-lg text-red-600">⚠️ Update failed</p>
+          <p className="text-sm text-gray-500 mt-1">{String(result.error)}</p>
+        </div>
+      );
+    }
+
+    const name = result.name ?? `dish #${String(step.input?.id)}`;
+    const updatedFields: string[] = Array.isArray(result.updated_fields) ? result.updated_fields : [];
+
+    return (
+      <div className="bg-white rounded-xl p-3 border border-gray-200 shadow-sm flex flex-col gap-1.5">
+        <p className="text-lg text-gray-700">
+          ✏️ Updated <span className="font-semibold">{name}</span>
+        </p>
+
+        {/* One line per changed field: "user_rating: 4.5 → 5" */}
+        {updatedFields.map((field) => (
+          <p key={field} className="text-base text-gray-500 pl-5">
+            <span className="font-medium">{field}</span>:{" "}
+            {String(result.previous_value?.[field])}{" "}
+            <span aria-hidden="true">→</span>{" "}
+            <span className="font-semibold text-gray-700">
+              {String(result.current_value?.[field])}
+            </span>
+          </p>
+        ))}
+
+        {/* Option A: instant undo — PUT /dishes/{id} with previous_value, no agent round-trip */}
+        <button
+          onClick={onUndo}
+          disabled={isUndone}
+          className="self-start mt-1 px-3 py-1 rounded-lg text-base font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {isUndone ? "Undone ✓" : "Undo"}
+        </button>
+      </div>
+    );
+  }
+
+  // ── delete_dish: simple confirmation, no undo (per Decisions §2) ─────────
+  if (step.tool === "delete_dish") {
+    const name = step.result?.name ?? `dish #${String(step.input?.id)}`;
+    return (
+      <div className="bg-white rounded-xl p-3 border border-gray-200 shadow-sm">
+        <p className="text-lg text-gray-700">
+          🗑️ Deleted <span className="font-semibold">{name}</span>
+        </p>
+      </div>
+    );
+  }
+
+  // ── Fallback for any tool not explicitly handled above ───────────────────
+  return (
+    <div className="bg-white rounded-xl p-3 border border-gray-200 shadow-sm">
+      <p className="text-lg text-gray-700">⚙️ {step.tool}</p>
+    </div>
+  );
+}
+
+// AgentActionsPanel — the right-panel content shown when mode === "agent".
+// Groups the persisted `agentSteps` log by turn number (steps accumulate across
+// turns — they are never replaced, only appended to).
+function AgentActionsPanel({
+  steps,
+  undoneStepKeys,
+  onUndo,
+  restaurantNameById,
+  lastAgentReply,
+}: {
+  steps: AgentStep[];
+  undoneStepKeys: Set<string>;
+  onUndo: (step: AgentStep, stepKey: string) => void;
+  restaurantNameById: Record<number, string>;
+  lastAgentReply: string;
+}) {
+  if (steps.length === 0) {
+    return (
+      <p className="text-lg text-gray-400 italic px-1">
+        Agent actions will appear here as you make requests.
+      </p>
+    );
+  }
+
+  // Distinct turn numbers, in the order they first appeared
+  const turns = Array.from(new Set(steps.map((s) => s.turn)));
+
+  return (
+    <>
+      {turns.map((turnNum) => (
+        <div key={turnNum} className="flex flex-col gap-2">
+          {/* Turn label — small uppercase header, matches "Mentioned Places" tone */}
+          <h3 className="text-base font-semibold text-gray-400 uppercase tracking-wide px-1">
+            Turn {turnNum}
+          </h3>
+
+          {steps
+            .filter((s) => s.turn === turnNum)
+            .map((step, i) => {
+              // stepKey is stable across renders because turn + index + tool
+              // uniquely identifies a step's position in the log
+              const stepKey = `${turnNum}-${i}-${step.tool}`;
+              return (
+                <AgentStepCard
+                  key={stepKey}
+                  step={step}
+                  isUndone={undoneStepKeys.has(stepKey)}
+                  onUndo={() => onUndo(step, stepKey)}
+                  restaurantNameById={restaurantNameById}
+                  lastAgentReply={lastAgentReply}
+                />
+              );
+            })}
+        </div>
+      ))}
+    </>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function RecommendPage() {
 
@@ -312,6 +591,19 @@ export default function RecommendPage() {
   const [messages,   setMessages]   = useState<ConversationTurn[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isThinking, setIsThinking] = useState(false);
+
+  // ── Agent Mode state ──────────────────────────────────────────────────────────
+  // mode: "recommend" → existing read-only /ai/recommend behavior (unchanged)
+  //       "agent"     → /ai/agent — can read AND write/delete dishes
+  const [mode, setMode] = useState<"recommend" | "agent">("recommend");
+  // agentSteps: PERSISTS across turns (never replaced) — running log for the
+  // Agent Actions panel, grouped by `turn` in AgentActionsPanel.
+  const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+  // turnCount: increments once per agent send — tags each new batch of steps
+  const [turnCount, setTurnCount] = useState(0);
+  // undoneStepKeys: which update_dish steps have already been reverted —
+  // disables their Undo button so a second click can't double-revert
+  const [undoneStepKeys, setUndoneStepKeys] = useState<Set<string>>(new Set());
 
   // ── Data for the right panel ─────────────────────────────────────────────────
   // Fetched on mount so the sidebar is ready before the first AI reply arrives
@@ -339,6 +631,11 @@ export default function RecommendPage() {
   const visibleRestaurants = allRestaurants.filter(
     (r) => mentionedIds.has(r.id) && !dismissedIds.has(r.id)
   );
+
+  // restaurant_id → name lookup, used by AgentActionsPanel to show "Dish from Restaurant".
+  // allRestaurants is small (6 items) so recomputing this each render is cheap.
+  const restaurantNameById: Record<number, string> = {};
+  for (const r of allRestaurants) restaurantNameById[r.id] = r.name;
 
   // ── Effect 1: parallel fetch of restaurants + dishes on mount ────────────────
   // Both data sets are needed to populate the right panel. Failures are non-fatal —
@@ -390,6 +687,9 @@ export default function RecommendPage() {
   }, [mentionedIds, appearedIds]);
 
   // ── handleSend ────────────────────────────────────────────────────────────────
+  // Branches on `mode`:
+  //   "recommend" → existing /ai/recommend flow, unchanged ({reply, updated_history})
+  //   "agent"     → /ai/agent flow, NEW ({response, agent_steps, updated_history})
   async function handleSend() {
     const text = inputValue.trim();
     if (!text || isThinking) return;
@@ -404,7 +704,10 @@ export default function RecommendPage() {
     setIsThinking(true);
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ai/recommend`, {
+      // Pick the endpoint based on the current mode — request body shape is identical
+      const endpoint = mode === "agent" ? "/ai/agent" : "/ai/recommend";
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -415,14 +718,32 @@ export default function RecommendPage() {
 
       if (!res.ok) throw new Error(`API responded with ${res.status}`);
 
-      const data = await res.json() as { reply: string; updated_history: ConversationTurn[] };
+      if (mode === "agent") {
+        // ── Agent mode: response shape is {response, agent_steps, updated_history} ──
+        const data = await res.json() as AgentResponse;
 
-      // Replace our optimistic state with the canonical history from the server.
-      // updated_history = [...historyForApi, {user msg}, {assistant reply}]
-      setMessages(data.updated_history);
+        // Replace optimistic state with the canonical history from the server
+        setMessages(data.updated_history);
 
-      // Scan the reply for restaurant names to populate the right panel
-      scanForMentions(data.reply);
+        // Tag this turn's steps with the new turn number, then APPEND (never replace)
+        // to the persisted log — this is what makes the Agent Actions panel a
+        // running history rather than a per-reply snapshot.
+        const turn = turnCount + 1;
+        const taggedSteps: AgentStep[] = data.agent_steps.map((step) => ({ ...step, turn }));
+        setAgentSteps((prev) => [...prev, ...taggedSteps]);
+        setTurnCount(turn);
+
+      } else {
+        // ── Recommend mode: existing behavior, unchanged ──────────────────────────
+        const data = await res.json() as { reply: string; updated_history: ConversationTurn[] };
+
+        // Replace our optimistic state with the canonical history from the server.
+        // updated_history = [...historyForApi, {user msg}, {assistant reply}]
+        setMessages(data.updated_history);
+
+        // Scan the reply for restaurant names to populate the right panel
+        scanForMentions(data.reply);
+      }
 
     } catch (err) {
       // Surface the error as a chat bubble so the user gets feedback
@@ -443,6 +764,7 @@ export default function RecommendPage() {
   // Fix 1: always resets all three panel Sets before applying the new results,
   //         so the panel shows ONLY restaurants from the most recent reply.
   //         Even an empty result clears stale cards from the previous reply.
+  // Only called in "recommend" mode — "agent" mode uses agentSteps instead.
   function scanForMentions(replyText: string) {
     // Fix 2+3: store the reply text so selectDishes can use it for dish filtering
     setLastReply(replyText);
@@ -458,8 +780,32 @@ export default function RecommendPage() {
     setAppearedIds(new Set());
   }
 
+  // ── handleSwitchMode ──────────────────────────────────────────────────────────
+  // Switching modes clears BOTH chat history and BOTH panels' state — same
+  // "fresh slate" rule as Week 5's switchMode(). Prevents Recommend-mode
+  // mentions and Agent-mode action logs from bleeding into each other.
+  function handleSwitchMode(newMode: "recommend" | "agent") {
+    if (newMode === mode) return; // no-op if clicking the already-active mode
+
+    setMode(newMode);
+    setMessages([]);
+    setIsThinking(false);
+
+    // Clear Recommend-mode panel state
+    setMentionedIds(new Set());
+    setDismissedIds(new Set());
+    setAppearedIds(new Set());
+    setLastReply("");
+
+    // Clear Agent-mode panel state
+    setAgentSteps([]);
+    setTurnCount(0);
+    setUndoneStepKeys(new Set());
+  }
+
   // ── handleClear ───────────────────────────────────────────────────────────────
-  // Resets all chat and sidebar state back to State 1 (empty landing view)
+  // Resets all chat and sidebar state back to State 1 (empty landing view).
+  // Does NOT change `mode` — clearing the chat keeps you in whichever mode you were in.
   function handleClear() {
     setMessages([]);
     setMentionedIds(new Set());
@@ -467,12 +813,42 @@ export default function RecommendPage() {
     setAppearedIds(new Set());
     setLastReply(""); // Fix 2+3: clear so selectDishes starts clean on next conversation
     setIsThinking(false);
+
+    // Also reset the Agent Actions log — "Clear chat" means a clean slate for both panels
+    setAgentSteps([]);
+    setTurnCount(0);
+    setUndoneStepKeys(new Set());
     // inputValue intentionally kept — user may have typed something while reading
   }
 
   // ── handleDismiss ─────────────────────────────────────────────────────────────
   function handleDismiss(id: number) {
     setDismissedIds((prev) => new Set(Array.from(prev).concat([id])));
+  }
+
+  // ── handleUndo ────────────────────────────────────────────────────────────────
+  // Option A (instant revert, per Decisions §5): directly calls PUT /dishes/{id}
+  // with the step's captured `previous_value` — no round-trip through /ai/agent.
+  // Reuses the existing DishUpdate schema / update_dish endpoint on the backend.
+  async function handleUndo(step: AgentStep, stepKey: string) {
+    // Guard: only update_dish steps with a captured previous_value can be undone
+    if (step.tool !== "update_dish" || !step.result?.previous_value) return;
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dishes/${step.result.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(step.result.previous_value),
+      });
+
+      if (!res.ok) throw new Error(`Undo failed: ${res.status}`);
+
+      // Mark this specific step as undone — disables its Undo button so a second
+      // click can't revert an already-reverted change
+      setUndoneStepKeys((prev) => new Set(Array.from(prev).concat([stepKey])));
+    } catch (err) {
+      console.error("Undo failed:", err);
+    }
   }
 
   // ── Shared input bar content ───────────────────────────────────────────────────
@@ -490,7 +866,12 @@ export default function RecommendPage() {
             void handleSend();
           }
         }}
-        placeholder="Ask for a lunch recommendation…"
+        // Placeholder hints at what the agent can do differently in Agent mode
+        placeholder={
+          mode === "agent"
+            ? "Ask the agent to update or remove a dish…"
+            : "Ask for a lunch recommendation…"
+        }
         disabled={isThinking}
         className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white text-sm disabled:opacity-60 transition-shadow"
       />
@@ -517,6 +898,9 @@ export default function RecommendPage() {
       {!isActive && (
         <div className="min-h-[calc(100vh-76px)] flex flex-col items-center justify-center gap-8 text-center px-4">
 
+          {/* Mode toggle — visible before the first message is sent */}
+          <ModeToggle mode={mode} onSwitch={handleSwitchMode} />
+
           {/* Heading + subtitle */}
           <div className="flex flex-col items-center gap-2">
             <h1 className="text-5xl font-bold text-gray-800">
@@ -524,7 +908,9 @@ export default function RecommendPage() {
               <span className="text-indigo-600">Lunch?</span>
             </h1>
             <p className="text-gray-400 text-base max-w-sm">
-              Ask me anything about your tracked restaurants and dishes.
+              {mode === "agent"
+                ? "Ask me to look up, update, or remove dishes from your tracker."
+                : "Ask me anything about your tracked restaurants and dishes."}
             </p>
           </div>
 
@@ -565,11 +951,14 @@ export default function RecommendPage() {
           <div className="flex flex-col md:flex-row md:h-[calc(100vh-124px)] md:overflow-hidden -mx-6 -mt-6">
 
             {/* ── Left panel: conversation history (60% on desktop) ──────────── */}
-            <div className="flex flex-col w-full md:w-[60%] border-r border-gray-200 bg-white md:overflow-hidden">
+            <div className="flex flex-col w-full md:w-[35%] border-r border-gray-200 bg-white md:overflow-hidden">
 
-              {/* Sticky panel header with Clear chat button */}
+              {/* Sticky panel header: title + mode toggle on the left, Clear chat on the right */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white sticky top-0 z-10 flex-shrink-0">
-                <h2 className="font-semibold text-gray-700 text-sm">Conversation</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="font-semibold text-gray-700 text-sm">Conversation</h2>
+                  <ModeToggle mode={mode} onSwitch={handleSwitchMode} />
+                </div>
                 <button
                   onClick={handleClear}
                   className="text-xs text-gray-400 hover:text-red-500 transition-colors font-medium"
@@ -592,30 +981,44 @@ export default function RecommendPage() {
               </div>
             </div>
 
-            {/* ── Right panel: Mentioned Places (40% on desktop, stacks below on mobile) */}
-            <div className="flex flex-col w-full md:w-[40%] overflow-y-auto bg-gray-50 p-4 gap-4">
+            {/* ── Right panel: Mentioned Places (Recommend) or Agent Actions (Agent) ── */}
+            <div className="flex flex-col w-full md:w-[65%] overflow-y-auto bg-gray-50 p-4 gap-4">
               <h2 className="font-semibold text-gray-700 text-sm px-1 flex-shrink-0">
-                Mentioned Places
+                {mode === "agent" ? "Agent Actions" : "Mentioned Places"}
               </h2>
 
-              {/* Placeholder shown until the first restaurant is detected in a reply */}
-              {visibleRestaurants.length === 0 && (
-                <p className="text-sm text-gray-400 italic px-1">
-                  Restaurant names will appear here as Claude mentions them.
-                </p>
-              )}
-
-              {/* Restaurant cards — fade in via the appearedIds Set (Effect 3) */}
-              {visibleRestaurants.map((r, index) => (
-                <RestaurantMentionCard
-                  key={r.id}
-                  restaurant={r}
-                  colors={CARD_COLORS[index % CARD_COLORS.length]}
-                  dishes={selectDishes(dishesByRestaurant[r.id] ?? [], lastReply)}
-                  appeared={appearedIds.has(r.id)}
-                  onDismiss={() => handleDismiss(r.id)}
+              {mode === "agent" ? (
+                // ── Agent mode: persisted, turn-grouped tool call log ──────────────
+                <AgentActionsPanel
+                  steps={agentSteps}
+                  undoneStepKeys={undoneStepKeys}
+                  onUndo={handleUndo}
+                  restaurantNameById={restaurantNameById}
+                  lastAgentReply={[...messages].reverse().find((m) => m.role === "assistant")?.content ?? ""}
                 />
-              ))}
+              ) : (
+                // ── Recommend mode: existing Mentioned Places behavior, unchanged ──
+                <>
+                  {/* Placeholder shown until the first restaurant is detected in a reply */}
+                  {visibleRestaurants.length === 0 && (
+                    <p className="text-sm text-gray-400 italic px-1">
+                      Restaurant names will appear here as Claude mentions them.
+                    </p>
+                  )}
+
+                  {/* Restaurant cards — fade in via the appearedIds Set (Effect 3) */}
+                  {visibleRestaurants.map((r, index) => (
+                    <RestaurantMentionCard
+                      key={r.id}
+                      restaurant={r}
+                      colors={CARD_COLORS[index % CARD_COLORS.length]}
+                      dishes={selectDishes(dishesByRestaurant[r.id] ?? [], lastReply)}
+                      appeared={appearedIds.has(r.id)}
+                      onDismiss={() => handleDismiss(r.id)}
+                    />
+                  ))}
+                </>
+              )}
             </div>
           </div>
 
