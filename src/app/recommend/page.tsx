@@ -71,12 +71,18 @@ const CARD_COLORS = [
 
 // Straight-line miles from CSTU (1601 McCarthy Blvd, Milpitas) — same lookup as Restaurants page
 const DISTANCES_FROM_CSTU: Record<string, number> = {
-  "BJ's Restaurant": 8.0,
-  "Chipotle":        3.5,
-  "Dishdash":        8.0,
-  "King Eggroll":    4.0,
-  "Mendocino Farms": 4.5,
-  "Panera":          8.0,
+  "BJ's Restaurant":        8.0,
+  "Chipotle":               3.5,
+  "Dishdash":               8.0,
+  "King Eggroll":           4.0,
+  "Mendocino Farms":        4.5,
+  "Panera":                 8.0,
+  "Starbucks":              3.0,
+  "Koi Palace (鲤鱼门)":    2.5,
+  "Uncle Cha":              1.5,
+  "Cheung Hing (祥兴)":     3.0,
+  "Taiwan Porridge":        2.0,
+  "HL Peninsula (半岛酒家)": 1.2,
 };
 
 // Keywords that indicate the reply is about beverages — used by selectDishes (Fix 3)

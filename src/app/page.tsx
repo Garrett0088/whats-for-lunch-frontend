@@ -327,7 +327,7 @@ export default function HomePage() {
                         ${CARD_COLORS[3].bg} ${CARD_COLORS[3].accent}
                         hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200`}
           >
-            ✨ Ask Claude
+            🤖 Snack Chat
           </Link>
         </div>
       </section>

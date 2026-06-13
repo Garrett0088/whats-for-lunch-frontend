@@ -22,12 +22,18 @@ type Restaurant = {
 // to each restaurant in the seed data. Rounded to the nearest 0.5 mi.
 // Calculated by comparing lat/lon coordinates — placeholder until a geo API is added.
 const DISTANCES_FROM_CSTU: Record<string, number> = {
-  "BJ's Restaurant": 8.0,   // Stevens Creek Blvd, west San Jose
-  Chipotle: 3.5,             // Brokaw Rd, north San Jose — closest to campus
-  Dishdash: 8.0,             // S Murphy Ave, Sunnyvale
-  "King Eggroll": 4.0,       // Berryessa Rd, north San Jose
-  "Mendocino Farms": 4.5,    // Freedom Circle, Santa Clara
-  Panera: 8.0,               // Olin Ave, central San Jose
+  "BJ's Restaurant": 8.0,          // Stevens Creek Blvd, west San Jose
+  Chipotle: 3.5,                    // Brokaw Rd, north San Jose — closest to campus
+  Dishdash: 8.0,                    // S Murphy Ave, Sunnyvale
+  "King Eggroll": 4.0,              // Berryessa Rd, north San Jose
+  "Mendocino Farms": 4.5,           // Freedom Circle, Santa Clara
+  Panera: 8.0,                      // Olin Ave, central San Jose
+  Starbucks: 3.0,                   // River Oaks Pl, San Jose
+  "Koi Palace (鲤鱼门)": 2.5,       // Barber Ln, Milpitas
+  "Uncle Cha": 1.5,                 // N Milpitas Blvd, Milpitas
+  "Cheung Hing (祥兴)": 3.0,        // E Calaveras Blvd, Milpitas
+  "Taiwan Porridge": 2.0,           // N Milpitas Blvd, Milpitas
+  "HL Peninsula (半岛酒家)": 1.2,   // Ranch Drive, Milpitas
 };
 
 // ── Card color palette ────────────────────────────────────────────────────────
